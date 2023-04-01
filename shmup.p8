@@ -2,6 +2,7 @@ pico-8 cartridge // http://www.pico-8.com
 version 41
 __lua__
 -- main
+-- hello
 cls(0)
 function _init()
  mode = "start"
@@ -29,6 +30,7 @@ end
 function _update()
  if lives and lives <= 0 then
   mode = "over"
+  game_over_t = t() + 2
   reset_game()
  end
 
@@ -101,7 +103,7 @@ function update_ship()
  if(btn(⬇️))	ship.sy = 2
  ship.y += ship.sy
  ship.y = max(ship.y, 0)
- ship.y = min(ship.y, 120)
+ ship.y = min(ship.y, 112)
  
  
  if btn(❎) then
@@ -109,7 +111,7 @@ function update_ship()
    add_bullet()
    sfx(0)
    muzzle = 5
-   bullet_pulse = t() + 0.2
+   bullet_pulse = t() + 0.1
   end
  end
  
@@ -178,6 +180,7 @@ end
 -- ui
 function init_ui()
  lives=3
+ score= 0
 end
 
 function update_ui()
@@ -194,6 +197,8 @@ function draw_ui()
   spr(3,i*8,1)
  end
  
+ print("score:"..score.."000",48,2,12)
+ 
 end
 
 
@@ -209,13 +214,13 @@ end
 
 function draw_start()
  draw_stars()
- printout("shmup", 25, 35, 8, 7)
+ printout("\^w\^tshmup", 25, 35, 8, 7)
  printout("press ❎ to start", 32, 80, 12,7)
 end
 
 function update_over()
  update_stars()
- if btnp(❎) then
+ if btnp(❎) and game_over_t < t() then
   mode = "start"
  end
 end
@@ -224,8 +229,9 @@ function draw_over()
  
  draw_stars()
  
- printout("game over", 34, 40, 3, 7)
- printout("press ❎", 52, 80, 8,7)
+ printout("\^t\^wgame over", 32, 40, 3, 7)
+ printout("score:"..score.."000",48,2,12)
+ printout("press ❎", 50, 80, 8,7)
 end
 
 function printout(str,x,y,oc,fc)
@@ -263,8 +269,13 @@ function add_bullet()
  local bullet = {
   x=ship.x,
   y=ship.y,
-  spd=-5} 
+  spd=-5,
+  dead=dead_bullet} 
  add(bullets, bullet)
+end
+
+function dead_bullet(b)
+ 
 end
 -->8
 -- enemies
@@ -272,7 +283,16 @@ function init_enemies()
  enemies_spr={21,22}
  enemies={}
  for i=1,20 do
-   newenemy={x=rnd(128),y=rnd(512)-512,xspd=0,yspd=1}
+   newenemy={
+    x=rnd(128),
+    y=rnd(512)-512,
+    xspd=0,
+    yspd=1,
+    health=3,
+    dead=dead_enemy,
+    damage=damage_enemy,
+    points=3,
+    state="norm"}
    add(enemies, newenemy)
  end
 end
@@ -281,7 +301,6 @@ function update_enemies()
  for e in all(enemies) do
   e.y += e.yspd
   e.x += e.xspd
-  
   if e.y > 128 then
    e.y = -30
    e.x = rnd(128) 
@@ -292,8 +311,32 @@ end
 function draw_enemies()
  esi = flr(t()*10) % #enemies_spr + 1
  for e in all(enemies) do
+ 
+  if e.state == "hit" then
+   pal(3,7)
+   e.state = "norm"
+  end
   spr(enemies_spr[esi],e.x,e.y)
+  pal()
  end
+end
+
+function dead_enemy(e)
+ explode(e.x, e.y) 
+	sfx(7)
+	e.y -= 150
+	e.health=3
+	score += e.points
+end
+
+function damage_enemy(e)
+	e.health -= 1
+	e.state = "hit"
+	sfx(8)
+	if e.health < 1 then
+	 e.dead(e)
+	 
+	end
 end
 -->8
 -- physics update
@@ -302,12 +345,9 @@ function update_physics()
  for e in all(enemies) do
   for b in all(bullets) do
    if boxcol(e.x,e.y,b.x,b.y) then
-    for i=1,20 do
-     add_particle(e.x + rnd(8), e.y+rnd(8))
-    end
-    sfx(7)
-    e.y -= 150
-    del(bullets,b)    
+    e.damage(e)
+    b.dead(b)
+    del(bullets,b)
    end
   end
  end
@@ -315,6 +355,7 @@ function update_physics()
  if ship.invul < t() then
 	 for e in all(enemies) do
 	  if boxcol(e.x,e.y,ship.x,ship.y) then
+	   e.dead(e)
 	   del(enemies,e)
 	   lives-=1
 	   sfx(7)
@@ -324,37 +365,79 @@ function update_physics()
  end
 end
 
-particles = {}
+function explode(x,y)
+ for i=1,20 do
 
-function add_particle(x, y)
- particle = {
-  x=x,
-  y=y,
-  size=rnd(8),
-  live=rnd(0.2)+t() }
- add(particles, particle)
-end
-
-function update_particles()
- for p in all(particles) do
-  if p.live < t() then
-   p.size -= 1
-   if p.size <= 0 then
-    del(particles, p)
-   end
-  end
+  add_particle(x+rnd(8),
+               y+rnd(8),
+               init_smoke,
+               draw_smoke,
+               update_smoke)
+               
+  add_particle(x+rnd(8),
+               y+rnd(8),
+               init_fire,
+               draw_fire,
+               update_smoke)             
  end
+ 
+ add_particle(x+4,
+               y+4,
+               init_eshock,
+               draw_eshock,
+               update_smoke) 
+ 
 end
 
-function draw_particles()
- for p in all(particles) do
-  if p.live < t() then
-   circfill(p.x, p.y, p.size,7)
-  end
- end
+function init_eshock(p)
+ p.born = 0
+ p.maxage = 0.4
+ p.size = 2
+ p.chgsize = 2
 end
+
+function draw_eshock(p)
+ if p.col then
+  p.col += 1
+  p.col %= 15
+ else
+  p.col = 0
+ end
+ circ(p.x,p.y,p.size,p.col)
+end
+
+function init_smoke(p)
+ born=rnd(0.5)+0.2
+ maxage=0.3
+ p.size = 5
+ p.chgsize = -0.5
+ p.born = born
+ p.maxage = maxage
+end
+
+function update_smoke(p)
+ p.size += p.chgsize
+end
+
+function draw_smoke(p)
+ circfill(p.x, p.y, p.size,2)
+end
+
+function init_fire(p)
+ born=rnd(1)
+ maxage=0.3
+ p.size = 3
+ p.chgsize = -0.5
+ p.born = born
+ p.maxage = maxage
+end
+
+function draw_fire(p)
+ circfill(p.x, p.y, p.size,7)
+end
+
 -->8
--- physics
+-- physics and particles
 
 function boxcol(x1,y1,x2,y2,w1,w2,h1,h2)
   w1 = w1 or 8
@@ -366,10 +449,61 @@ function boxcol(x1,y1,x2,y2,w1,w2,h1,h2)
    return true
   end
  return false
-
 end
 
+particles = {}
 
+function add_particle(x, y, 
+																						spawncb,
+                      drawcb,
+                      updatecb,
+																				  deadcb)                      
+ newp = {
+  x=x,
+  y=y,
+  spawncb=spawncb,
+  updatecb=updatecb,
+  drawcb=drawcb,
+  deadcb=deadcb,
+  born=0,
+  maxage=1}
+ 
+ if spawncb then
+  spawncb(newp)
+ end
+ 
+ newp.born += t()
+ newp.maxage += newp.born
+ 
+ add(particles, newp)
+end
+
+function update_particles()
+ for p in all(particles) do
+  if p.maxage < t() then
+   if p.deadcb then
+    p.deadcb(p)
+   end
+   del(particles,p)
+  elseif p.born <= t() then
+   if p.updatecb then
+    p.updatecb(p)
+   end
+  end
+ end
+end
+
+function draw_particles()
+ for p in all(particles) do
+  if p.born < t() then
+   if p.drawcb then
+    p.drawcb(p)
+   else
+    pset(p.x, p.y, 7)
+   end
+  end
+ end
+end
 -->8
 -- coroutines
 coroutines = {}
@@ -403,14 +537,14 @@ function count_to_10()
 end
 
 __gfx__
-00888800000000000000000008808800088088000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-089aa98000aaaa000000000088888880800800800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-89a77a980aa7aaa00000000088888880800000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-89a77a988a7aaaa80000000088888880800000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-089aa98089aaaa980000000008888800080008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-089aa980889999880000000000888000008080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00899800008888000000000000080000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00088000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+08800880000000000088880008808800088088000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+8778877800aaaa00089aa98088888880800800800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+799779970aa7aaa089a77a9888888880800000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+899889988a7aaaa889a77a9888888880800000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0990099089aaaa98089aa98008888800080008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0980089088999988089aa98000888000008080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+08000080008888000089980000080000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00800800000000000008800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00066000000660000006600000000000000000000030030000300300000000000000000000000000000000000000000000000000000000000000000000000000
 000cc000000cc000000cc000000000000000000003b7bb3003b7bb30000000000000000000000000000000000000000000000000000000000000000000000000
 007cc00000c7cc00000c7c0000000000000000003b7bbbb33b7bbbb3000000000000000000000000000000000000000000000000000000000000000000000000
@@ -555,7 +689,7 @@ __label__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 __sfx__
-000100003807034070310602d0602b0502604024030210501f0401b040170400c0401304012030110300f0300b0200802005020100200d0100a0100701004010020200e0200c0200902006020020200001000010
+010100003801034010310102d0102b0102601024010210101f0101b010170100c0101301012010110100f0100b0100801005010100100d0100a0100701004010020100e0100c0100901006010020100001000010
 0d1400003761537615376150000037615376150000037615376150000037615376150000037615376153761537615376153761537615376153761537615376150000037615376150000037615376153761537615
 0028003f13133211321a132101331a1321a1330e1331c1320e1331d1321c13211133101331d132101331f1321c1301f130111301f1301d130131301d1302113013130211301f130151301f130151301f13015130
 0028000013133211350e133101331a132101330e1331c1320e133211321f13211133101331d132101331c13200030000300003000030000300003000030000300003000030000300003000030000300003000030
@@ -563,6 +697,7 @@ __sfx__
 011000000c03300000000000c03313635000030c0330000000000000000c033000001f01300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 90010000011101f1401d1201b130191201713016120141301213011110101200f1500d1300b1200913008130061300511004120101100e1300d1300c1200b1200a12008110071200512003120031200112000120
 8d010000360500215039450374502d0501415010150384503645034450121500e1500c150220500c1500b15032450314502f4500855006550065501b050044002f4502d450055500355016050024002945001400
+00010000326502a650206501965010650096500465003650016500064000640006300063003620086200b6200d6200d6200c6200b6200a6100961006610036100061000610006100060000600000000000000000
 __music__
 00 01020444
 02 01030444
